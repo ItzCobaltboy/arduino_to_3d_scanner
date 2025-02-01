@@ -1,3 +1,4 @@
 [console_scripts]
+data_handler = arduino_handler.data_processor:main
 serial_handler = arduino_handler.pyserial_handler:main
 

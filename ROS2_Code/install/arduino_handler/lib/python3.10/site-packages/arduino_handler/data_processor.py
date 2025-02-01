@@ -21,7 +21,7 @@ class PointCloudConverter(Node):
         )
         
         # Initialize data storage
-        self.points_df = pd.DataFrame(columns=['x', 'y', 'z'])
+        self.points_df = pd.DataFrame(columns=['x', 'y', 'z', 'sensor_number'])
         
     def calculate_xyz_sensor1(self, reading: float, angle: float, 
                             sensor_offset: float, height: float) -> tuple:
@@ -39,8 +39,8 @@ class PointCloudConverter(Node):
         angle_rad = math.radians(angle)
         
         # Calculate coordinates
-        x = (sensor_offset - reading) * math.cos(angle_rad)
-        y = (sensor_offset - reading) * math.sin(angle_rad)
+        x = sensor_offset - reading * math.cos(angle_rad)
+        y = reading * math.sin(angle_rad)
         z = height
         
         return (x, y, z)
@@ -71,7 +71,7 @@ class PointCloudConverter(Node):
         Process incoming scan data and add to points dataframe
         """
         sensor_num = scan_data['sensor_number']
-        reading = scan_data['distance']
+        reading = scan_data['sensor_reading']
         offset = scan_data['sensor_offset']
         angle = scan_data['turntable_angle']
         height = scan_data['height']
@@ -94,6 +94,7 @@ class PointCloudConverter(Node):
             'x': [x],
             'y': [y],
             'z': [z],
+            'sensor_number': [sensor_num]
         })
         self.points_df = pd.concat([self.points_df, new_point], ignore_index=True)
         
@@ -109,12 +110,12 @@ class PointCloudConverter(Node):
             self.get_logger().error('Failed to parse JSON data')
         except Exception as e:
             self.get_logger().error(f'Error processing scan data: {str(e)}')
-        
+            
     def save_points_to_csv(self, filename: str) -> None:
         """
         Save the accumulated points to a CSV file
         """
-        self.points_df.to_csv(filename, index=True)
+        self.points_df.to_csv(filename, index=False)
         self.get_logger().info(f'Saved point cloud to {filename}')
 
 def main(args=None):

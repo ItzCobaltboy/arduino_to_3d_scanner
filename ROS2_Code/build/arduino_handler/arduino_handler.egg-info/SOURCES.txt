@@ -9,6 +9,7 @@ setup.py
 ../../build/arduino_handler/arduino_handler.egg-info/top_level.txt
 ../../build/arduino_handler/arduino_handler.egg-info/zip-safe
 arduino_handler/__init__.py
+arduino_handler/data_processor.py
 arduino_handler/pyserial_handler.py
 resource/arduino_handler
 test/test_copyright.py

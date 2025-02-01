@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'serial_handler = arduino_handler.pyserial_handler:main'
+            'serial_handler = arduino_handler.pyserial_handler:main',
+            'data_handler = arduino_handler.data_processor:main'
         ],
     },
 )
