@@ -1,86 +1,318 @@
-#include <Wire.h>
-#include <Stepper.h>
-#include <Adafruit_VL53L0X.h>
+#include "Wire.h"
+#include "VL53L0X.h"
 
-///////////////////////////// CONFIG //////////////////////////////////////
-const int verticalSensorAddress = 0x29; // I2C address for vertical VL53L0X sensor (default address)
-const int horizontalSensorAddress = 0x30; // I2C address for horizontal VL53L0X sensor (change address if needed)
-const int verticalMotorPin1 = 3; // Stepper motor pin 1 (Vertical) connected to ULN2003 IN1
-const int verticalMotorPin2 = 4; // Stepper motor pin 2 (Vertical) connected to ULN2003 IN2
-const int verticalMotorPin3 = 5; // Stepper motor pin 3 (Vertical) connected to ULN2003 IN3
-const int verticalMotorPin4 = 6; // Stepper motor pin 4 (Vertical) connected to ULN2003 IN4
-const int horizontalMotorPin1 = 7; // Stepper motor pin 1 (Horizontal) connected to ULN2003 IN1
-const int horizontalMotorPin2 = 8; // Stepper motor pin 2 (Horizontal) connected to ULN2003 IN2
-const int horizontalMotorPin3 = 9; // Stepper motor pin 3 (Horizontal) connected to ULN2003 IN3
-const int horizontalMotorPin4 = 10; // Stepper motor pin 4 (Horizontal) connected to ULN2003 IN4
-const int maxVerticalSteps = 1000; // Maximum steps for vertical motor
-const int maxHorizontalSteps = 1000; // Maximum steps for horizontal motor
+// Define ToF XSHUT pins
+#define SIDE_XSHUT_PIN 8
+#define TOP_XSHUT_PIN 9
 
-///////////////////////////////////////////////////////////////////////////
+// L298N pins for turntable stepper
+#define TURN_IN1 2
+#define TURN_IN2 3
+#define TURN_IN3 4
+#define TURN_IN4 5
 
-// Initialize stepper motors
-Stepper verticalMotor(2048, verticalMotorPin1, verticalMotorPin2, verticalMotorPin3, verticalMotorPin4); // 2048 steps per revolution
-Stepper horizontalMotor(2048, horizontalMotorPin1, horizontalMotorPin2, horizontalMotorPin3, horizontalMotorPin4); // 2048 steps per revolution
+// L298N pins for vertical stepper
+#define VERT_IN1 6
+#define VERT_IN2 7
+#define VERT_IN3 10
+#define VERT_IN4 11
 
-// Initialize VL53L0X LIDAR sensors
-Adafruit_VL53L0X verticalSensor = Adafruit_VL53L0X();
-Adafruit_VL53L0X horizontalSensor = Adafruit_VL53L0X();
+// Define ToF sensor addresses
+#define SIDE_TOF_ADDRESS 0x30
+#define TOP_TOF_ADDRESS 0x31
+
+// Scanner parameters
+const int STEPS_PER_REV = 2048;        // Steps per revolution for 28BYJ-48
+const int STEP_SEQUENCE_COUNT = 8;      // 8-step sequence
+const float MAX_HEIGHT = 100.0;         // Maximum height in mm
+const float HEIGHT_STEP = 2.0;          // Height increment per step in mm
+const float ANGLE_STEP = 2.0;           // Angle increment in degrees
+const int SETTLING_TIME = 100;          // Time to wait after movement in ms
+const int SAMPLES_PER_READING = 3;      // Number of readings to average
+
+// Stepper motor sequence (8-step sequence)
+const byte stepSequence[8][4] = {
+  {1, 0, 0, 0},
+  {1, 1, 0, 0},
+  {0, 1, 0, 0},
+  {0, 1, 1, 0},
+  {0, 0, 1, 0},
+  {0, 0, 1, 1},
+  {0, 0, 0, 1},
+  {1, 0, 0, 1}
+};
+
+// Initialize ToF sensors
+VL53L0X sideSensor;
+VL53L0X topSensor;
+
+// Current position tracking
+float currentHeight = 0.0;
+float currentAngle = 0.0;
 
 void setup() {
-  // Start Serial for debugging
-  Serial.begin(115200);
-  
-  // Initialize I2C communication
+  Serial.begin(9600);
   Wire.begin();
   
-  // Set the speed for the motors (adjust as needed)
-  verticalMotor.setSpeed(15);  // Speed in RPM (adjust as needed)
-  horizontalMotor.setSpeed(15); // Speed in RPM (adjust as needed)
+  // Initialize all pins
+  initializePins();
+  
+  // Configure ToF sensors
+  setupTofSensors();
+  
+  Serial.println("3D Scanner Ready");
+  printMenu();
+}
 
-  // Initialize VL53L0X sensors
-  if (!verticalSensor.begin()) {
-    Serial.println("Failed to initialize vertical VL53L0X sensor!");
-    while (1);
+void initializePins() {
+  // ToF XSHUT pins
+  pinMode(SIDE_XSHUT_PIN, OUTPUT);
+  pinMode(TOP_XSHUT_PIN, OUTPUT);
+  
+  // Turntable stepper pins
+  pinMode(TURN_IN1, OUTPUT);
+  pinMode(TURN_IN2, OUTPUT);
+  pinMode(TURN_IN3, OUTPUT);
+  pinMode(TURN_IN4, OUTPUT);
+  
+  // Vertical stepper pins
+  pinMode(VERT_IN1, OUTPUT);
+  pinMode(VERT_IN2, OUTPUT);
+  pinMode(VERT_IN3, OUTPUT);
+  pinMode(VERT_IN4, OUTPUT);
+}
+
+void setupTofSensors() {
+  // Reset both sensors
+  digitalWrite(SIDE_XSHUT_PIN, LOW);
+  digitalWrite(TOP_XSHUT_PIN, LOW);
+  delay(10);
+  
+  // Initialize Side Sensor
+  digitalWrite(SIDE_XSHUT_PIN, HIGH);
+  delay(10);
+  if (!sideSensor.init()) {
+    Serial.println("Failed to initialize side sensor!");
+  }
+  sideSensor.setAddress(SIDE_TOF_ADDRESS);
+  
+  // Initialize Top Sensor
+  digitalWrite(TOP_XSHUT_PIN, HIGH);
+  delay(10);
+  if (!topSensor.init()) {
+    Serial.println("Failed to initialize top sensor!");
+  }
+  topSensor.setAddress(TOP_TOF_ADDRESS);
+  
+  // Start continuous mode
+  sideSensor.startContinuous();
+  topSensor.startContinuous();
+}
+
+void printMenu() {
+  Serial.println("Commands:");
+  Serial.println("1 - Start Full Scan");
+  Serial.println("2 - Start Side Scan Only");
+  Serial.println("3 - Start Top Scan Only");
+  Serial.println("h - Return to Home Position");
+  Serial.println("s - Stop Current Operation");
+  Serial.println("? - Show this menu");
+}
+
+void moveStepperMotor(int in1, int in2, int in3, int in4, int steps, int direction) {
+  static int currentStep = 0;
+  
+  for (int i = 0; i < abs(steps); i++) {
+    if (direction > 0) {
+      currentStep = (currentStep + 1) % STEP_SEQUENCE_COUNT;
+    } else {
+      currentStep = (currentStep - 1 + STEP_SEQUENCE_COUNT) % STEP_SEQUENCE_COUNT;
+    }
+    
+    digitalWrite(in1, stepSequence[currentStep][0]);
+    digitalWrite(in2, stepSequence[currentStep][1]);
+    digitalWrite(in3, stepSequence[currentStep][2]);
+    digitalWrite(in4, stepSequence[currentStep][3]);
+    
+    delay(2); // Adjust for speed control
   }
   
-  if (!horizontalSensor.begin()) {
-    Serial.println("Failed to initialize horizontal VL53L0X sensor!");
-    while (1);
+  // Turn off coils
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+}
+
+void rotateTurntable(float targetAngle) {
+  float angleDiff = targetAngle - currentAngle;
+  int steps = (angleDiff / 360.0) * STEPS_PER_REV;
+  moveStepperMotor(TURN_IN1, TURN_IN2, TURN_IN3, TURN_IN4, steps, steps > 0 ? 1 : -1);
+  currentAngle = targetAngle;
+}
+
+void moveVertical(float targetHeight) {
+  float heightDiff = targetHeight - currentHeight;
+  // Convert height difference to steps (adjust based on your mechanical setup)
+  int steps = (heightDiff / 8.0) * STEPS_PER_REV; // Assuming 8mm per full revolution
+  moveStepperMotor(VERT_IN1, VERT_IN2, VERT_IN3, VERT_IN4, steps, steps > 0 ? 1 : -1);
+  currentHeight = targetHeight;
+}
+
+uint16_t getAveragedReading(VL53L0X &sensor) {
+  uint32_t sum = 0;
+  
+  for (int i = 0; i < SAMPLES_PER_READING; i++) {
+    sum += sensor.readRangeContinuousMillimeters();
+    delay(10);
   }
   
-  // Calibration or additional setup for VL53L0X (if necessary)
+  return sum / SAMPLES_PER_READING;
+}
+
+void performFullScan() {
+  Serial.println("Starting full scan...");
+  Serial.println("Format: SensorID,Height(mm),Distance(mm),Angle(deg)");
+  
+  float height = 0;
+  while (height <= MAX_HEIGHT) {
+    moveVertical(height);
+    delay(SETTLING_TIME);
+    
+    for (float angle = 0; angle < 360; angle += ANGLE_STEP) {
+      rotateTurntable(angle);
+      delay(SETTLING_TIME);
+      
+      // Get readings from both sensors
+      uint16_t sideDist = getAveragedReading(sideSensor);
+      uint16_t topDist = getAveragedReading(topSensor);
+      
+      // Output readings
+      // Side sensor (ID=1)
+      Serial.print("1,");
+      Serial.print(height, 2);
+      Serial.print(",");
+      Serial.print(sideDist);
+      Serial.print(",");
+      Serial.println(angle, 2);
+      
+      // Top sensor (ID=2)
+      Serial.print("2,");
+      Serial.print(height, 2);
+      Serial.print(",");
+      Serial.print(topDist);
+      Serial.print(",");
+      Serial.println(angle, 2);
+      
+      // Check for stop command
+      if (Serial.available() && Serial.read() == 's') {
+        Serial.println("Scan stopped by user");
+        return;
+      }
+    }
+    
+    height += HEIGHT_STEP;
+  }
+  
+  Serial.println("Scan complete");
+}
+
+void performSideScan() {
+  Serial.println("Starting side scan...");
+  Serial.println("Format: SensorID,Height(mm),Distance(mm),Angle(deg)");
+  
+  float height = 0;
+  while (height <= MAX_HEIGHT) {
+    moveVertical(height);
+    delay(SETTLING_TIME);
+    
+    for (float angle = 0; angle < 360; angle += ANGLE_STEP) {
+      rotateTurntable(angle);
+      delay(SETTLING_TIME);
+      
+      uint16_t sideDist = getAveragedReading(sideSensor);
+      
+      Serial.print("1,");
+      Serial.print(height, 2);
+      Serial.print(",");
+      Serial.print(sideDist);
+      Serial.print(",");
+      Serial.println(angle, 2);
+      
+      if (Serial.available() && Serial.read() == 's') {
+        Serial.println("Scan stopped by user");
+        return;
+      }
+    }
+    
+    height += HEIGHT_STEP;
+  }
+  
+  Serial.println("Side scan complete");
+}
+
+void performTopScan() {
+  Serial.println("Starting top scan...");
+  Serial.println("Format: SensorID,Height(mm),Distance(mm),Angle(deg)");
+  
+  for (float angle = 0; angle < 360; angle += ANGLE_STEP) {
+    rotateTurntable(angle);
+    delay(SETTLING_TIME);
+    
+    uint16_t topDist = getAveragedReading(topSensor);
+    
+    Serial.print("2,");
+    Serial.print("0,"); // Height is fixed for top sensor
+    Serial.print(topDist);
+    Serial.print(",");
+    Serial.println(angle, 2);
+    
+    if (Serial.available() && Serial.read() == 's') {
+      Serial.println("Scan stopped by user");
+      return;
+    }
+  }
+  
+  Serial.println("Top scan complete");
+}
+
+void homePosition() {
+  Serial.println("Moving to home position...");
+  moveVertical(0);
+  delay(SETTLING_TIME);
+  rotateTurntable(0);
+  currentHeight = 0;
+  currentAngle = 0;
+  Serial.println("Home position reached");
 }
 
 void loop() {
-  // Read distance from the vertical sensor
-  uint16_t verticalDistance = readDistance(verticalSensor);
-  
-  // Read distance from the horizontal sensor
-  uint16_t horizontalDistance = readDistance(horizontalSensor);
-
-  // For demonstration, we move the motors based on sensor readings
-  // Adjust movement logic based on actual sensor data and desired behavior
-  
-  // Move vertical motor based on vertical sensor value
-  int verticalSteps = map(verticalDistance, 0, 2000, 0, maxVerticalSteps); // Adjust range as needed
-  verticalMotor.step(verticalSteps); 
-
-  // Move horizontal motor based on horizontal sensor value
-  int horizontalSteps = map(horizontalDistance, 0, 2000, 0, maxHorizontalSteps); // Adjust range as needed
-  horizontalMotor.step(horizontalSteps);
-
-  // Add delay to avoid excessive updates
-  delay(100);
-}
-
-// Function to read distance from the VL53L0X sensor
-uint16_t readDistance(Adafruit_VL53L0X &sensor) {
-  VL53L0X_RangingMeasurementData_t measure;
-  sensor.rangingTest(&measure, false);  // Pass in 'true' for debug data
-  
-  if (measure.RangeStatus != 4) {  // Check if there is a valid measurement
-    return measure.RangeMilliMeter; // Return the measured distance in millimeters
-  } else {
-    return 0;  // Return 0 if the measurement failed
+  if (Serial.available() > 0) {
+    char command = Serial.read();
+    
+    switch (command) {
+      case '1':
+        performFullScan();
+        break;
+      case '2':
+        performSideScan();
+        break;
+      case '3':
+        performTopScan();
+        break;
+      case 'h':
+        homePosition();
+        break;
+      case 's':
+        Serial.println("Stop command received");
+        break;
+      case '?':
+        printMenu();
+        break;
+      default:
+        Serial.println("Unknown command");
+        printMenu();
+        break;
+    }
   }
 }
