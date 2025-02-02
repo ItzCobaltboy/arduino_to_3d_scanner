@@ -21,47 +21,30 @@ class PointCloudConverter(Node):
         )
         
         # Initialize data storage
-        self.points_df = pd.DataFrame(columns=['x', 'y', 'z', 'sensor_number'])
+        self.points_df = pd.DataFrame(columns=['x', 'y', 'z'])
         
     def calculate_xyz_sensor1(self, reading: float, angle: float, 
                             sensor_offset: float, height: float) -> tuple:
-        """
-        Calculate XYZ coordinates for sensor 1 (side scanner)
-        Args:
-            reading: Distance reading from sensor
-            angle: Turntable angle in degrees
-            sensor_offset: X-axis offset of sensor from origin
-            height: Z-axis height of measurement
-        Returns:
-            tuple: (x, y, z) coordinates
-        """
+
         # Convert angle to radians
         angle_rad = math.radians(angle)
         
         # Calculate coordinates
-        x = sensor_offset - reading * math.cos(angle_rad)
-        y = reading * math.sin(angle_rad)
+        x = ((sensor_offset - reading) * math.cos(angle_rad)) / 10
+        y = ((sensor_offset - reading) * math.sin(angle_rad)) / 10
         z = height
         
         return (x, y, z)
     
     def calculate_xyz_sensor2(self, reading: float, angle: float, 
                             height_offset: float) -> tuple:
-        """
-        Calculate XYZ coordinates for sensor 2 (top scanner)
-        Args:
-            reading: Distance reading from sensor
-            angle: Turntable angle in degrees
-            height_offset: Radius offset for the circular scan
-        Returns:
-            tuple: (x, y, z) coordinates
-        """
+        
         # Convert angle to radians
         angle_rad = math.radians(angle)
         
         # Calculate coordinates
-        x = height_offset * math.cos(angle_rad)
-        y = height_offset * math.sin(angle_rad)
+        x = (height_offset * math.cos(angle_rad))
+        y = (height_offset * math.sin(angle_rad))
         z = reading
         
         return (x, y, z)
@@ -71,11 +54,19 @@ class PointCloudConverter(Node):
         Process incoming scan data and add to points dataframe
         """
         sensor_num = scan_data['sensor_number']
-        reading = scan_data['sensor_reading']
+        reading = scan_data['distance']
         offset = scan_data['sensor_offset']
         angle = scan_data['turntable_angle']
         height = scan_data['height']
+
+        if (reading >= 140):
+            return
         
+        if (reading > 1000):
+            self.get_logger().warn('Skipping out of bounds Data')
+            return
+        
+
         if None in [sensor_num, reading, offset, angle, height]:
             self.get_logger().warn('Received incomplete scan data')
             return
@@ -94,7 +85,6 @@ class PointCloudConverter(Node):
             'x': [x],
             'y': [y],
             'z': [z],
-            'sensor_number': [sensor_num]
         })
         self.points_df = pd.concat([self.points_df, new_point], ignore_index=True)
         
@@ -110,12 +100,12 @@ class PointCloudConverter(Node):
             self.get_logger().error('Failed to parse JSON data')
         except Exception as e:
             self.get_logger().error(f'Error processing scan data: {str(e)}')
-            
+        
     def save_points_to_csv(self, filename: str) -> None:
         """
         Save the accumulated points to a CSV file
         """
-        self.points_df.to_csv(filename, index=False)
+        self.points_df.to_csv(filename, index=True)
         self.get_logger().info(f'Saved point cloud to {filename}')
 
 def main(args=None):

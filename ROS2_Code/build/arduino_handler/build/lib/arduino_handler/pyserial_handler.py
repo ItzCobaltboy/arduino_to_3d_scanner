@@ -8,7 +8,7 @@ from std_msgs.msg import String
 ARDUINO_ADDRESS = '/dev/ttyACM0'
 BAUD_RATE = 9600
 TIMER_FREQUENCY = 10.0  # Hz
-LATERAL_SENSOR_X_OFFSET = 10.0
+LATERAL_SENSOR_X_OFFSET = 140.0
 VERTICAL_SENSOR_Z_OFFSET = 10.0
 
 class Scanner3DNode(Node):
@@ -23,7 +23,7 @@ class Scanner3DNode(Node):
         
         # Timer to read serial data at fixed rate
         self.timer = self.create_timer(1.0/TIMER_FREQUENCY, self.read_serial_data)
-        
+        self.ser.write(b'S')
         # Buffer for incoming data
         self.buffer = ""
         
@@ -54,9 +54,9 @@ class Scanner3DNode(Node):
                     return False
                 
                 self.scan_data["sensor_number"] = sensor_id
-                self.scan_data["height"] = int(values[1])
-                self.scan_data["distance"] = int(values[2])
-                self.scan_data["turntable_angle"] = int(values[3])
+                self.scan_data["height"] = float(values[1])
+                self.scan_data["distance"] = float(values[2])
+                self.scan_data["turntable_angle"] = float(values[3])
                 self.scan_data["sensor_offset"] = offset
                 return True
             return False
@@ -102,6 +102,7 @@ def main(args=None):
     rclpy.init(args=args)
     scanner_node = Scanner3DNode()
     
+
     try:
         rclpy.spin(scanner_node)
     except KeyboardInterrupt:

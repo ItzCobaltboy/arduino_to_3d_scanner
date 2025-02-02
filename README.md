@@ -11,3 +11,7 @@ This is a repository for a system of 3D object scanner made using Lidar sensors 
 ### Hardware
 - Two Stepper motors with motor drivers
 - Two LIDAR sensors/// TODO
+
+# LAUNCH IN ENv with numpy < 2.0
+currently 
+``` source myenv/bin/activate ```

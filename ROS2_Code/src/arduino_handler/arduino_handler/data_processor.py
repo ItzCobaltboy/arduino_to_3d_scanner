@@ -25,43 +25,26 @@ class PointCloudConverter(Node):
         
     def calculate_xyz_sensor1(self, reading: float, angle: float, 
                             sensor_offset: float, height: float) -> tuple:
-        """
-        Calculate XYZ coordinates for sensor 1 (side scanner)
-        Args:
-            reading: Distance reading from sensor
-            angle: Turntable angle in degrees
-            sensor_offset: X-axis offset of sensor from origin
-            height: Z-axis height of measurement
-        Returns:
-            tuple: (x, y, z) coordinates
-        """
+
         # Convert angle to radians
         angle_rad = math.radians(angle)
         
         # Calculate coordinates
-        x = (sensor_offset - reading) * math.cos(angle_rad)
-        y = (sensor_offset - reading) * math.sin(angle_rad)
+        x = ((sensor_offset - reading) * math.cos(angle_rad)) / 10
+        y = ((sensor_offset - reading) * math.sin(angle_rad)) / 10
         z = height
         
         return (x, y, z)
     
     def calculate_xyz_sensor2(self, reading: float, angle: float, 
                             height_offset: float) -> tuple:
-        """
-        Calculate XYZ coordinates for sensor 2 (top scanner)
-        Args:
-            reading: Distance reading from sensor
-            angle: Turntable angle in degrees
-            height_offset: Radius offset for the circular scan
-        Returns:
-            tuple: (x, y, z) coordinates
-        """
+        
         # Convert angle to radians
         angle_rad = math.radians(angle)
         
         # Calculate coordinates
-        x = height_offset * math.cos(angle_rad)
-        y = height_offset * math.sin(angle_rad)
+        x = (height_offset * math.cos(angle_rad))
+        y = (height_offset * math.sin(angle_rad))
         z = reading
         
         return (x, y, z)
@@ -75,7 +58,15 @@ class PointCloudConverter(Node):
         offset = scan_data['sensor_offset']
         angle = scan_data['turntable_angle']
         height = scan_data['height']
+
+        if (reading >= 140):
+            return
         
+        if (reading > 1000):
+            self.get_logger().warn('Skipping out of bounds Data')
+            return
+        
+
         if None in [sensor_num, reading, offset, angle, height]:
             self.get_logger().warn('Received incomplete scan data')
             return
