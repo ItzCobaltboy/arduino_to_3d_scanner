@@ -2,6 +2,10 @@
 
 This is a repository for a system of 3D object scanner made using Lidar sensors and stepper motors, the scan is created by ROS2
 
+# Samples are provided
+Multiple different types of objects, we have a slight error due to scanning at low resolution due to time constraints
+
+
 # SORRY
 ## No documentation as of now
 
